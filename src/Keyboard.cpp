@@ -48,6 +48,16 @@ static const uint8_t _hidReportDescriptor[] PROGMEM = {
     0x75, 0x08,                    //   REPORT_SIZE (8)
     0x81, 0x03,                    //   INPUT (Cnst,Var,Abs)
     
+  0x95, 0x05,                    //   REPORT_COUNT (5)
+    0x75, 0x01,                    //   REPORT_SIZE (1)
+    0x05, 0x08,                    //   USAGE_PAGE (LEDs)
+    0x19, 0x01,                    //   USAGE_MINIMUM (1)
+    0x29, 0x05,                    //   USAGE_MAXIMUM (5)
+    0x91, 0x02,                    //   OUTPUT (Data,Var,Abs) // LED report
+    0x95, 0x01,                    //   REPORT_COUNT (1)
+    0x75, 0x03,                    //   REPORT_SIZE (3)
+    0x91, 0x01,                    //   OUTPUT (Constant) // padding
+
   0x95, 0x06,                    //   REPORT_COUNT (6)
     0x75, 0x08,                    //   REPORT_SIZE (8)
     0x15, 0x00,                    //   LOGICAL_MINIMUM (0)
@@ -238,8 +248,25 @@ size_t Keyboard_::press(uint8_t k)
 			return 0;
 		}
 		if (k & 0x80) {						// it's a capital letter or other character reached with shift
-			_keyReport.modifiers |= 0x02;	// the left shift modifier
 			k &= 0x7F;
+            if (k >= 0x04 && k <= 0x1d) {   // A-Z need modifier only if CAPS_LOCK is not active
+                if (!(getLedStatus() & LED_CAPS_LOCK)) {
+			        _keyReport.modifiers |= 0x02;	// the left shift modifier
+                    sendReport(&_keyReport);        // send a separate report containing key modifier change
+                    delay(5);
+                }
+            } else {
+			    _keyReport.modifiers |= 0x02;	// the left shift modifier
+                sendReport(&_keyReport);        // send a separate report containing key modifier change
+                delay(5);
+            }
+		} else {
+            // lower case when caps is pressed needs shift
+            if (k >= 0x04 && k <= 0x1d && (getLedStatus() & LED_CAPS_LOCK)) {
+                _keyReport.modifiers |= 0x02;
+                sendReport(&_keyReport);
+                delay(5);
+            }
 		}
 	}
 	
@@ -330,6 +357,10 @@ size_t Keyboard_::write(const uint8_t *buffer, size_t size) {
 		buffer++;
 	}
 	return n;
+}
+
+uint8_t Keyboard_::getLedStatus(void) {
+	return HID().getKeyboardLedsStatus();
 }
 
 Keyboard_ Keyboard;
