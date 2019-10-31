@@ -104,6 +104,7 @@ class Keyboard_ : public Print
 private:
   KeyReport _keyReport;
   void sendReport(KeyReport* keys);
+  uint8_t layout;
 public:
   Keyboard_(void);
   void begin(void);
@@ -114,6 +115,7 @@ public:
   size_t release(uint8_t k);
   void releaseAll(void);
   uint8_t getLedStatus(void);
+  uint8_t switchLayout(uint8_t l);
 };
 extern Keyboard_ Keyboard;
 

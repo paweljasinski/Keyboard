@@ -74,6 +74,7 @@ Keyboard_::Keyboard_(void)
 {
 	static HIDSubDescriptor node(_hidReportDescriptor, sizeof(_hidReportDescriptor));
 	HID().AppendDescriptor(&node);
+    layout = 0;
 }
 
 void Keyboard_::begin(void)
@@ -89,46 +90,25 @@ void Keyboard_::sendReport(KeyReport* keys)
 	HID().SendReport(2,keys,sizeof(KeyReport));
 }
 
+# define LAYOUT_COUNT 2
 extern
-const uint16_t _asciimap[128] PROGMEM;
+const uint8_t _asciimap[LAYOUT_COUNT][96] PROGMEM;
 
-#define SHIFT 0x80
-#if 0
-const uint8_t _asciimap[128] =
+uint8_t Keyboard_::switchLayout(uint8_t l) {
+    if (l < LAYOUT_COUNT) {
+        layout = l;
+        return 1;
+    }
+    return 0;
+}
+
+
+#define SHIFT 0x40
+#define ALTGR 0x80
+#define SHIFTED_64_KEY 0x3F
+
+const uint8_t _asciimap[LAYOUT_COUNT][96] = {
 {
-	0x00,             // NUL
-	0x00,             // SOH
-	0x00,             // STX
-	0x00,             // ETX
-	0x00,             // EOT
-	0x00,             // ENQ
-	0x00,             // ACK
-	0x00,             // BEL
-	0x2a,			// BS	Backspace
-	0x2b,			// TAB	Tab
-	0x28,			// LF	Enter
-	0x00,             // VT
-	0x00,             // FF
-	0x00,             // CR
-	0x00,             // SO
-	0x00,             // SI
-	0x00,             // DEL
-	0x00,             // DC1
-	0x00,             // DC2
-	0x00,             // DC3
-	0x00,             // DC4
-	0x00,             // NAK
-	0x00,             // SYN
-	0x00,             // ETB
-	0x00,             // CAN
-	0x00,             // EM
-	0x00,             // SUB
-	0x00,             // ESC
-	0x00,             // FS
-	0x00,             // GS
-	0x00,             // RS
-	0x00,             // US
-
 	0x2c,		   //  ' '
 	0x1e|SHIFT,	   // !
 	0x34|SHIFT,	   // "
@@ -224,47 +204,9 @@ const uint8_t _asciimap[128] =
 	0x31|SHIFT,    // |
 	0x30|SHIFT,    // }
 	0x35|SHIFT,    // ~
-	0				// DEL
-};
-#endif
-
-#define ALTGR 0x0100
-
-const uint16_t _asciimap[128] =
+	0x2A 		   // DEL
+},
 {
-	0x00,             // NUL
-	0x00,             // SOH
-	0x00,             // STX
-	0x00,             // ETX
-	0x00,             // EOT
-	0x00,             // ENQ
-	0x00,             // ACK
-	0x00,             // BEL
-	0x2a,			// BS	Backspace
-	0x2b,			// TAB	Tab
-	0x28,			// LF	Enter
-	0x00,             // VT
-	0x00,             // FF
-	0x00,             // CR
-	0x00,             // SO
-	0x00,             // SI
-	0x00,             // DEL
-	0x00,             // DC1
-	0x00,             // DC2
-	0x00,             // DC3
-	0x00,             // DC4
-	0x00,             // NAK
-	0x00,             // SYN
-	0x00,             // ETB
-	0x00,             // CAN
-	0x00,             // EM
-	0x00,             // SUB
-	0x00,             // ESC
-	0x00,             // FS
-	0x00,             // GS
-	0x00,             // RS
-	0x00,             // US
-
 	0x2c,		   //  ' '    0x20
 	0x30|SHIFT,	   // !       0x21
 	0x1f|SHIFT,	   // "
@@ -293,9 +235,9 @@ const uint16_t _asciimap[128] =
 	0x26,          // 9
 	0x37|SHIFT,    // :
 	0x36|SHIFT,    // ;
-	0x64,          // <
+	0x3f,          // <
 	0x27|SHIFT,    // =
-	0x64|SHIFT,      // >
+	0x3f|SHIFT,      // >
 	0x2d|SHIFT,      // ?
 	0x1f|ALTGR,      // @
 	0x04|SHIFT,      // A
@@ -325,7 +267,7 @@ const uint16_t _asciimap[128] =
 	0x1c|SHIFT,      // Y
 	0x1d|SHIFT,      // Z
 	0x2f|ALTGR,    // [
-	0x64|ALTGR,    // bslash
+	0x3F|ALTGR,    // bslash
 	0x30|ALTGR,    // ]
 	0x2e,          // ^
 	0x38|SHIFT,    // _
@@ -361,7 +303,7 @@ const uint16_t _asciimap[128] =
 	0x31|ALTGR,    // }
 	0x2e|ALTGR,    // ~
 	0x2a           // DEL
-};
+}};
 
 
 uint8_t USBPutChar(uint8_t c);
@@ -373,26 +315,35 @@ uint8_t USBPutChar(uint8_t c);
 size_t Keyboard_::press(uint8_t k)
 {
 	uint8_t i;
-    uint16_t mapped;
 	if (k >= 136) {			// it's a non-printing key (not a modifier)
 		k = k - 136;
 	} else if (k >= 128) {	// it's a modifier key
 		_keyReport.modifiers |= (1<<(k-128));
 		k = 0;
-	} else {				// it's a printing key
-		mapped = pgm_read_word(_asciimap + k);
+	} else if (k < 0x20) { // take care of 0x00-0x1F
+        if (k == 0x08) {
+            k = 0x2a; // BS	Backspace
+        } else if (k == 0x09) {
+            k = 0x2b; // TAB	Tab
+        } else if (k == 0x0a) {
+	        k = 0x28; // LF	Enter
+        } else {
+            k = 0;
+        }
+    } else {            // it's a printing key
+		k = pgm_read_byte(&_asciimap[layout][k - 0x20]);
 		if (!k) {
 			setWriteError();
 			return 0;
 		}
-        if (mapped & ALTGR) {
+        if (k & ALTGR) {
+            k &= ~ALTGR;
             _keyReport.modifiers |= 0x40;
             sendReport(&_keyReport);        // send a separate report containing ALTGR modifier change
             delay(5);
         }
-        k = mapped & 0xFF;
-		if (k & 0x80) {						// it's a capital letter or other character reached with shift
-			k &= 0x7F;
+		if (k & SHIFT) {	// it's a capital letter or other character reached with shift
+			k &= ~SHIFT;
             if (k >= 0x04 && k <= 0x1d) {   // A-Z need modifier only if CAPS_LOCK is not active
                 if (!(getLedStatus() & LED_CAPS_LOCK)) {
 			        _keyReport.modifiers |= 0x02;	// the left shift modifier
@@ -412,8 +363,10 @@ size_t Keyboard_::press(uint8_t k)
                 delay(5);
             }
 		}
+        if (k == 0x3F) {
+            k = 0x64;
+        }
 	}
-
 	// Add k to the key report only if it's not already present
 	// and if there is an empty slot.
 	if (_keyReport.keys[0] != k && _keyReport.keys[1] != k &&
@@ -447,13 +400,13 @@ size_t Keyboard_::release(uint8_t k)
 		_keyReport.modifiers &= ~(1<<(k-128));
 		k = 0;
 	} else {				// it's a printing key
-		k = pgm_read_byte(_asciimap + k);
+		k = pgm_read_byte(&_asciimap[layout][k - 0x20]);
 		if (!k) {
 			return 0;
 		}
-		if (k & 0x80) {							// it's a capital letter or other character reached with shift
+		if (k & SHIFT) {							// it's a capital letter or other character reached with shift
 			_keyReport.modifiers &= ~(0x02);	// the left shift modifier
-			k &= 0x7F;
+			k &= ~SHIFT;
 		}
 	}
 
